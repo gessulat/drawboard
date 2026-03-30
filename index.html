@@ -245,6 +245,14 @@
   let mouseOnCanvas = false;
   let cursorBlink = false;
   let blinkInterval = null;
+  let shiftHeld = false;
+
+  function snapAngle(x0, y0, x1, y1) {
+    const dx = x1 - x0, dy = y1 - y0;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 18)) * (Math.PI / 18);
+    return { x: x0 + dist * Math.cos(angle), y: y0 + dist * Math.sin(angle) };
+  }
 
   // ── Canvas setup ──
 
@@ -341,6 +349,11 @@
     drawing = false;
     activePointer = null;
     if (current) {
+      if (shiftHeld && current.points.length >= 2) {
+        const start = current.points[0];
+        const last = current.points[current.points.length - 1];
+        current.points = [start, snapAngle(start.x, start.y, last.x, last.y)];
+      }
       strokes.push(current);
       current = null;
       updateUndo();
@@ -432,7 +445,35 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     strokes.forEach(renderEntry);
     if (activeText && activeText.text.length > 0) renderTextEntry(activeText);
-    if (current) renderStroke(current);
+    if (current) {
+      if (shiftHeld && current.points.length >= 2) {
+        const s = current, p0 = s.points[0], pN = s.points[s.points.length - 1];
+        const snapped = snapAngle(p0.x, p0.y, pN.x, pN.y);
+        ctx.beginPath();
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = s.width;
+        ctx.lineCap = 'round';
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(snapped.x, snapped.y);
+        ctx.stroke();
+        const deg = Math.round(Math.atan2(snapped.y - p0.y, snapped.x - p0.x) * 180 / Math.PI);
+        const label = deg + '\u00B0';
+        ctx.font = '11px -apple-system, sans-serif';
+        const tw = ctx.measureText(label).width;
+        const r = Math.max(tw / 2 + 6, 14);
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.beginPath();
+        ctx.arc(p0.x, p0.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, p0.x, p0.y);
+        ctx.textAlign = 'start';
+      } else {
+        renderStroke(current);
+      }
+    }
     renderCursor();
   }
 
@@ -470,6 +511,13 @@
   }
 
   // ── Keyboard ──
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Shift') { shiftHeld = true; if (drawing) redraw(); }
+  });
+  document.addEventListener('keyup', e => {
+    if (e.key === 'Shift') { shiftHeld = false; if (drawing) redraw(); }
+  });
 
   document.addEventListener('keydown', e => {
     if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
