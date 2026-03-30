@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drawboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      overflow: hidden;
+      background: #faf5ec;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    canvas {
+      display: block;
+      cursor: crosshair;
+    }
+
+    .sidebar {
+      position: fixed;
+      top: 50%;
+      right: 14px;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 8px;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 12px;
+      box-shadow: 0 1px 12px rgba(0, 0, 0, 0.06);
+      z-index: 10;
+      user-select: none;
+    }
+
+    /* ── Color swatches ── */
+    .color-btn {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+      padding: 0;
+      outline: none;
+    }
+    .color-btn:hover { transform: scale(1.15); }
+    .color-btn.active {
+      border-color: #fff;
+      box-shadow: 0 0 0 1.5px #3a3a3a;
+    }
+
+    /* ── Divider ── */
+    .sep {
+      width: 18px;
+      height: 1px;
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    /* ── Vertical thickness slider ── */
+    .thickness-slider {
+      writing-mode: vertical-lr;
+      direction: rtl;
+      appearance: none;
+      -webkit-appearance: none;
+      height: 80px;
+      width: 6px;
+      background: transparent;
+      cursor: pointer;
+      margin: 4px 0;
+    }
+    .thickness-slider::-webkit-slider-runnable-track {
+      width: 4px;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.08);
+      border-radius: 2px;
+    }
+    .thickness-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      background: #888;
+      border-radius: 50%;
+      border: none;
+      margin-left: -5px;
+    }
+    .thickness-slider::-moz-range-track {
+      width: 4px;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.08);
+      border-radius: 2px;
+      border: none;
+    }
+    .thickness-slider::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      background: #888;
+      border-radius: 50%;
+      border: none;
+    }
+
+    /* ── Action buttons ── */
+    .action-btn {
+      width: 28px;
+      height: 28px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s;
+      color: #777;
+      padding: 0;
+    }
+    .action-btn:hover { background: rgba(0, 0, 0, 0.05); color: #444; }
+    .action-btn:disabled { opacity: 0.25; cursor: default; pointer-events: none; }
+    .action-btn svg { width: 15px; height: 15px; }
+  </style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div class="sidebar">
+  <button class="color-btn active" data-color="#3a3a3a" style="background:#3a3a3a" title="Black"></button>
+  <button class="color-btn" data-color="#b06060" style="background:#b06060" title="Red"></button>
+  <button class="color-btn" data-color="#607aab" style="background:#607aab" title="Blue"></button>
+  <button class="color-btn" data-color="#5f9a68" style="background:#5f9a68" title="Green"></button>
+
+  <div class="sep"></div>
+
+  <input type="range" class="thickness-slider" min="1" max="19" value="3" title="Thickness">
+
+  <div class="sep"></div>
+
+  <button class="action-btn" id="undo" title="Undo" disabled>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+    </svg>
+  </button>
+  <button class="action-btn" id="clear" title="Clear">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+    </svg>
+  </button>
+  <button class="action-btn" id="save" title="Save SVG">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+  </button>
+</div>
+
+<script>
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  let strokes = [];
+  let current = null;
+  let color = '#3a3a3a';
+  let width = 3;
+  let drawing = false;
+  let activePointer = null;
+
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    redraw();
+  }
+  window.addEventListener('resize', resize);
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  // ── Drawing ──
+
+  canvas.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || drawing) return;
+    activePointer = e.pointerId;
+    drawing = true;
+    canvas.setPointerCapture(e.pointerId);
+    current = { points: [{ x: e.clientX, y: e.clientY }], color, width };
+  });
+
+  canvas.addEventListener('pointermove', e => {
+    if (!drawing || e.pointerId !== activePointer) return;
+    current.points.push({ x: e.clientX, y: e.clientY });
+    redraw();
+    renderStroke(current);
+  });
+
+  function endStroke(e) {
+    if (!drawing || e.pointerId !== activePointer) return;
+    drawing = false;
+    activePointer = null;
+    if (current) {
+      strokes.push(current);
+      current = null;
+      updateUndo();
+      redraw();
+    }
+  }
+
+  canvas.addEventListener('pointerup', endStroke);
+  canvas.addEventListener('pointercancel', endStroke);
+
+  function renderStroke(s) {
+    const pts = s.points;
+    ctx.beginPath();
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = s.width;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (pts.length === 1) {
+      ctx.fillStyle = s.color;
+      ctx.arc(pts[0].x, pts[0].y, s.width / 2, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+
+    ctx.moveTo(pts[0].x, pts[0].y);
+    if (pts.length === 2) {
+      ctx.lineTo(pts[1].x, pts[1].y);
+    } else {
+      for (let i = 1; i < pts.length - 1; i++) {
+        const mx = (pts[i].x + pts[i + 1].x) / 2;
+        const my = (pts[i].y + pts[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+      }
+      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    }
+    ctx.stroke();
+  }
+
+  function redraw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    strokes.forEach(renderStroke);
+  }
+
+  // ── Sidebar: colors ──
+
+  document.querySelectorAll('.color-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelector('.color-btn.active').classList.remove('active');
+      btn.classList.add('active');
+      color = btn.dataset.color;
+    });
+  });
+
+  // ── Sidebar: thickness ──
+
+  document.querySelector('.thickness-slider').addEventListener('input', e => {
+    width = parseInt(e.target.value);
+  });
+
+  // ── Sidebar: undo ──
+
+  const undoBtn = document.getElementById('undo');
+  function undo() {
+    if (strokes.length === 0) return;
+    strokes.pop();
+    updateUndo();
+    redraw();
+  }
+  undoBtn.addEventListener('click', undo);
+  function updateUndo() { undoBtn.disabled = strokes.length === 0; }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    }
+  });
+
+  // ── Sidebar: clear ──
+
+  document.getElementById('clear').addEventListener('click', () => {
+    strokes = [];
+    updateUndo();
+    redraw();
+  });
+
+  // ── Sidebar: save SVG ──
+
+  const r2 = n => Math.round(n * 100) / 100;
+
+  function strokeToPath(s) {
+    const pts = s.points;
+    if (pts.length === 1) {
+      return `  <circle cx="${r2(pts[0].x)}" cy="${r2(pts[0].y)}" r="${r2(s.width / 2)}" fill="${s.color}"/>`;
+    }
+    let d = `M${r2(pts[0].x)} ${r2(pts[0].y)}`;
+    if (pts.length === 2) {
+      d += ` L${r2(pts[1].x)} ${r2(pts[1].y)}`;
+    } else {
+      for (let i = 1; i < pts.length - 1; i++) {
+        const mx = r2((pts[i].x + pts[i + 1].x) / 2);
+        const my = r2((pts[i].y + pts[i + 1].y) / 2);
+        d += ` Q${r2(pts[i].x)} ${r2(pts[i].y)} ${mx} ${my}`;
+      }
+      d += ` L${r2(pts[pts.length - 1].x)} ${r2(pts[pts.length - 1].y)}`;
+    }
+    return `  <path d="${d}" stroke="${s.color}" stroke-width="${s.width}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+
+  document.getElementById('save').addEventListener('click', () => {
+    const w = canvas.width;
+    const h = canvas.height;
+    const paths = strokes.map(strokeToPath).join('\n');
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n${paths}\n</svg>`;
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'drawing.svg';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  });
+</script>
+
+</body>
+</html>
