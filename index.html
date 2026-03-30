@@ -234,6 +234,41 @@
     .home-cell:hover .delete-btn { opacity: 1; }
     .home-cell .delete-btn:hover { background: rgba(0, 0, 0, 0.7); }
 
+    .home-title {
+      position: absolute;
+      top: 8px;
+      left: 10px;
+      color: #3a3a3a;
+      font-size: 12px;
+      font-weight: 600;
+      pointer-events: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: calc(100% - 20px);
+    }
+
+    /* ── Title input (board view) ── */
+    #title-input {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: transparent;
+      border: none;
+      outline: none;
+      font-family: inherit;
+      font-size: 20px;
+      color: #aaa;
+      text-align: center;
+      z-index: 10;
+      padding: 6px 16px;
+      width: 300px;
+    }
+    #title-input:focus { color: #555; }
+    #title-input::placeholder { color: #ccc; }
+    #title-input.hidden { display: none; }
+
     /* ── Home button (board view) ── */
     #home-btn {
       position: fixed;
@@ -272,6 +307,8 @@
     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
   </svg>
 </button>
+
+<input id="title-input" class="hidden" type="text" placeholder="Untitled" spellcheck="false" autocomplete="off">
 
 <canvas id="c"></canvas>
 
@@ -353,6 +390,7 @@
   let cursorBlink = false;
   let blinkInterval = null;
   let shiftHeld = false;
+  let drawingTitle = '';
 
   // ── URL serialization ──
 
@@ -469,19 +507,32 @@
     return out;
   }
 
+  function slugify(s) {
+    return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+
   async function updateUrl() {
     const gen = ++urlGen;
     if (strokes.length === 0) { history.replaceState(null, '', location.pathname); return; }
     const hash = toBase64url(await deflate(encodeStrokes(strokes)));
     if (gen !== urlGen) return;
-    history.replaceState(null, '', '#' + hash);
+    const slug = drawingTitle ? slugify(drawingTitle) + '~' : '';
+    history.replaceState(null, '', '#' + slug + hash);
   }
 
   async function loadFromUrl() {
     const h = location.hash.slice(1);
     if (!h) return;
     try {
-      strokes = decodeStrokes(await inflate(fromBase64url(h)));
+      let data = h;
+      const ti = h.indexOf('~');
+      if (ti !== -1) {
+        drawingTitle = h.slice(0, ti).replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        data = h.slice(ti + 1);
+      } else {
+        drawingTitle = '';
+      }
+      if (data) strokes = decodeStrokes(await inflate(fromBase64url(data)));
       updateUndo();
       redraw();
     } catch (e) {
@@ -1024,11 +1075,11 @@
     try { localStorage.setItem(GALLERY_KEY, JSON.stringify(entries)); } catch {}
   }
 
-  function upsertGallery(hash, thumb, replaceId) {
+  function upsertGallery(hash, thumb, replaceId, title) {
     let entries = loadGallery();
     if (replaceId) entries = entries.filter(e => e.id !== replaceId);
     entries = entries.filter(e => e.hash !== hash);
-    entries.unshift({ id: replaceId || Date.now().toString(36), hash, thumb });
+    entries.unshift({ id: replaceId || Date.now().toString(36), hash, thumb, title: title || '' });
     saveGallery(entries.slice(0, GALLERY_MAX));
   }
 
@@ -1093,6 +1144,12 @@
       del.textContent = '\u00d7';
       del.addEventListener('click', e => { e.stopPropagation(); deleteEntry(entry.id); });
       cell.appendChild(img);
+      if (entry.title) {
+        const t = document.createElement('span');
+        t.className = 'home-title';
+        t.textContent = entry.title;
+        cell.appendChild(t);
+      }
       cell.appendChild(del);
       cell.addEventListener('click', () => { currentBoardId = entry.id; showBoard(entry.hash); });
       homeGrid.appendChild(cell);
@@ -1106,8 +1163,9 @@
       redraw();
       const thumb = captureThumbnail();
       if (thumb) {
-        const hash = toBase64url(await deflate(encodeStrokes(strokes)));
-        upsertGallery(hash, thumb, currentBoardId);
+        const dataHash = toBase64url(await deflate(encodeStrokes(strokes)));
+        const slug = drawingTitle ? slugify(drawingTitle) + '~' : '';
+        upsertGallery(slug + dataHash, thumb, currentBoardId, drawingTitle);
       }
     }
     currentBoardId = null;
@@ -1117,38 +1175,58 @@
     activeText = null;
     drawing = false;
     activePointer = null;
+    drawingTitle = '';
+    titleInput.value = '';
     updateUndo();
     redraw();
     history.replaceState(null, '', location.pathname);
     homeEl.classList.remove('hidden');
     homeBtn.classList.add('hidden');
+    titleInput.classList.add('hidden');
     renderHome();
   }
 
   async function showBoard(hash) {
     homeEl.classList.add('hidden');
     homeBtn.classList.remove('hidden');
+    titleInput.classList.remove('hidden');
     strokes = [];
     current = null;
     activeText = null;
     drawing = false;
     activePointer = null;
+    drawingTitle = '';
     if (hash) {
       history.replaceState(null, '', '#' + hash);
       await loadFromUrl();
     }
+    titleInput.value = drawingTitle;
+    titleInput.style.color = drawingTitle ? '#3a3a3a' : '';
     updateUndo();
     redraw();
   }
 
   homeBtn.addEventListener('click', showHome);
 
+  const titleInput = document.getElementById('title-input');
+  titleInput.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Escape' || e.key === 'Enter') titleInput.blur();
+  });
+  titleInput.addEventListener('focus', () => { titleInput.placeholder = ''; });
+  titleInput.addEventListener('blur', () => { titleInput.placeholder = 'Untitled'; });
+  titleInput.addEventListener('input', () => {
+    drawingTitle = titleInput.value;
+    titleInput.style.color = drawingTitle ? '#3a3a3a' : '';
+    updateUrl();
+  });
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && homeEl.classList.contains('hidden') && strokes.length > 0) {
       const h = location.hash.slice(1);
       if (h) {
         const thumb = captureThumbnail();
-        if (thumb) upsertGallery(h, thumb, currentBoardId);
+        if (thumb) upsertGallery(h, thumb, currentBoardId, drawingTitle);
       }
     }
   });
