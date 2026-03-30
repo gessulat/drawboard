@@ -184,7 +184,7 @@
 
     .home-cell {
       border-radius: 10px;
-      overflow: hidden;
+      overflow: visible;
       cursor: pointer;
       background: #fff;
       box-shadow: 0 1px 8px rgba(0, 0, 0, 0.07);
@@ -211,7 +211,28 @@
     .home-cell.new-cell svg { width: 32px; height: 32px; color: rgba(0, 0, 0, 0.2); }
     .home-cell.new-cell:hover svg { color: rgba(0, 0, 0, 0.4); }
 
-    .home-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .home-cell { position: relative; }
+    .home-cell img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 10px; }
+    .home-cell .delete-btn {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 22px;
+      height: 22px;
+      border: none;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.45);
+      color: #fff;
+      font-size: 13px;
+      line-height: 22px;
+      text-align: center;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.12s, background 0.12s;
+      padding: 0;
+    }
+    .home-cell:hover .delete-btn { opacity: 1; }
+    .home-cell .delete-btn:hover { background: rgba(0, 0, 0, 0.7); }
 
     /* ── Home button (board view) ── */
     #home-btn {
@@ -992,6 +1013,7 @@
   const GALLERY_MAX = 15;
   const THUMB_W = 600;
   const THUMB_H = 400;
+  let currentBoardId = null;
 
   function loadGallery() {
     try { return JSON.parse(localStorage.getItem(GALLERY_KEY) || '[]'); }
@@ -1002,10 +1024,17 @@
     try { localStorage.setItem(GALLERY_KEY, JSON.stringify(entries)); } catch {}
   }
 
-  function upsertGallery(hash, thumb) {
-    let entries = loadGallery().filter(e => e.hash !== hash);
-    entries.unshift({ hash, thumb });
+  function upsertGallery(hash, thumb, replaceId) {
+    let entries = loadGallery();
+    if (replaceId) entries = entries.filter(e => e.id !== replaceId);
+    entries = entries.filter(e => e.hash !== hash);
+    entries.unshift({ id: replaceId || Date.now().toString(36), hash, thumb });
     saveGallery(entries.slice(0, GALLERY_MAX));
+  }
+
+  function deleteEntry(id) {
+    saveGallery(loadGallery().filter(e => e.id !== id));
+    renderHome();
   }
 
   function captureThumbnail() {
@@ -1059,8 +1088,13 @@
       const img = document.createElement('img');
       img.src = entry.thumb;
       img.draggable = false;
+      const del = document.createElement('button');
+      del.className = 'delete-btn';
+      del.textContent = '\u00d7';
+      del.addEventListener('click', e => { e.stopPropagation(); deleteEntry(entry.id); });
       cell.appendChild(img);
-      cell.addEventListener('click', () => showBoard(entry.hash));
+      cell.appendChild(del);
+      cell.addEventListener('click', () => { currentBoardId = entry.id; showBoard(entry.hash); });
       homeGrid.appendChild(cell);
     }
   }
@@ -1073,9 +1107,10 @@
       const thumb = captureThumbnail();
       if (thumb) {
         const hash = toBase64url(await deflate(encodeStrokes(strokes)));
-        upsertGallery(hash, thumb);
+        upsertGallery(hash, thumb, currentBoardId);
       }
     }
+    currentBoardId = null;
     urlGen++;
     strokes = [];
     current = null;
@@ -1113,7 +1148,7 @@
       const h = location.hash.slice(1);
       if (h) {
         const thumb = captureThumbnail();
-        if (thumb) upsertGallery(h, thumb);
+        if (thumb) upsertGallery(h, thumb, currentBoardId);
       }
     }
   });
