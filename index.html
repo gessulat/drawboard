@@ -16,8 +16,11 @@
     canvas {
       display: block;
       cursor: crosshair;
+      touch-action: none;
     }
+    body.text-mode canvas { cursor: none; }
 
+    /* ── Sidebar ── */
     .sidebar {
       position: fixed;
       top: 50%;
@@ -37,6 +40,12 @@
       user-select: none;
     }
 
+    .sep {
+      width: 18px;
+      height: 1px;
+      background: rgba(0, 0, 0, 0.08);
+    }
+
     /* ── Color swatches ── */
     .color-btn {
       width: 22px;
@@ -54,13 +63,6 @@
       box-shadow: 0 0 0 1.5px #3a3a3a;
     }
 
-    /* ── Divider ── */
-    .sep {
-      width: 18px;
-      height: 1px;
-      background: rgba(0, 0, 0, 0.08);
-    }
-
     /* ── Vertical thickness slider ── */
     .thickness-slider {
       writing-mode: vertical-lr;
@@ -74,30 +76,26 @@
       margin: 4px 0;
     }
     .thickness-slider::-webkit-slider-runnable-track {
-      width: 4px;
-      height: 100%;
+      width: 4px; height: 100%;
       background: rgba(0, 0, 0, 0.08);
       border-radius: 2px;
     }
     .thickness-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 14px;
-      height: 14px;
+      width: 14px; height: 14px;
       background: #888;
       border-radius: 50%;
       border: none;
       margin-left: -5px;
     }
     .thickness-slider::-moz-range-track {
-      width: 4px;
-      height: 100%;
+      width: 4px; height: 100%;
       background: rgba(0, 0, 0, 0.08);
       border-radius: 2px;
       border: none;
     }
     .thickness-slider::-moz-range-thumb {
-      width: 14px;
-      height: 14px;
+      width: 14px; height: 14px;
       background: #888;
       border-radius: 50%;
       border: none;
@@ -121,6 +119,49 @@
     .action-btn:hover { background: rgba(0, 0, 0, 0.05); color: #444; }
     .action-btn:disabled { opacity: 0.25; cursor: default; pointer-events: none; }
     .action-btn svg { width: 15px; height: 15px; }
+
+    /* ── Mode toggle ── */
+    body.text-mode .icon-draw { display: none; }
+    body:not(.text-mode) .icon-text { display: none; }
+
+    /* ── Draw / Text controls visibility ── */
+    .draw-controls { display: flex; flex-direction: column; align-items: center; }
+    .text-controls { display: none; flex-direction: column; align-items: center; gap: 4px; }
+    body.text-mode .draw-controls { display: none; }
+    body.text-mode .text-controls { display: flex; }
+
+    /* ── Size buttons ── */
+    .size-btn {
+      width: 26px;
+      height: 18px;
+      border: none;
+      background: transparent;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 10px;
+      color: #aaa;
+      font-family: inherit;
+      padding: 0;
+      transition: background 0.12s, color 0.12s;
+    }
+    .size-btn:hover { background: rgba(0, 0, 0, 0.04); }
+    .size-btn.active { background: rgba(0, 0, 0, 0.07); color: #444; }
+
+    /* ── Font buttons ── */
+    .font-btn {
+      width: 26px;
+      height: 20px;
+      border: none;
+      background: transparent;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      color: #aaa;
+      padding: 0;
+      transition: background 0.12s, color 0.12s;
+    }
+    .font-btn:hover { background: rgba(0, 0, 0, 0.04); }
+    .font-btn.active { background: rgba(0, 0, 0, 0.07); color: #444; }
   </style>
 </head>
 <body>
@@ -128,6 +169,19 @@
 <canvas id="c"></canvas>
 
 <div class="sidebar">
+  <!-- Mode toggle -->
+  <button class="action-btn" id="mode-toggle" title="Draw mode (i for text)">
+    <svg class="icon-draw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+    </svg>
+    <svg class="icon-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/>
+    </svg>
+  </button>
+
+  <div class="sep"></div>
+
+  <!-- Colors -->
   <button class="color-btn active" data-color="#3a3a3a" style="background:#3a3a3a" title="Black"></button>
   <button class="color-btn" data-color="#b06060" style="background:#b06060" title="Red"></button>
   <button class="color-btn" data-color="#607aab" style="background:#607aab" title="Blue"></button>
@@ -135,10 +189,26 @@
 
   <div class="sep"></div>
 
-  <input type="range" class="thickness-slider" min="1" max="19" value="3" title="Thickness">
+  <!-- Draw mode: thickness -->
+  <div class="draw-controls">
+    <input type="range" class="thickness-slider" min="1" max="19" value="3" title="Thickness">
+  </div>
+
+  <!-- Text mode: size + font -->
+  <div class="text-controls">
+    <button class="size-btn" data-size="14">14</button>
+    <button class="size-btn active" data-size="18">18</button>
+    <button class="size-btn" data-size="24">24</button>
+    <button class="size-btn" data-size="32">32</button>
+    <div class="sep"></div>
+    <button class="font-btn active" data-font="serif" style="font-family:serif" title="Serif">Aa</button>
+    <button class="font-btn" data-font="sans-serif" style="font-family:sans-serif" title="Sans-serif">Aa</button>
+    <button class="font-btn" data-font="monospace" style="font-family:monospace" title="Monospace">Aa</button>
+  </div>
 
   <div class="sep"></div>
 
+  <!-- Actions -->
   <button class="action-btn" id="undo" title="Undo" disabled>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
@@ -160,37 +230,110 @@
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
 
+  // ── State ──
   let strokes = [];
   let current = null;
+  let activeText = null;
+  let mode = 'draw';
   let color = '#3a3a3a';
-  let width = 3;
+  let brushWidth = 3;
+  let fontSize = 18;
+  let fontFamily = 'serif';
   let drawing = false;
   let activePointer = null;
+  let mouseX = 0, mouseY = 0;
+  let mouseOnCanvas = false;
+  let cursorBlink = false;
+  let blinkInterval = null;
+
+  // ── Canvas setup ──
 
   function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     redraw();
   }
   window.addEventListener('resize', resize);
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  resize();
 
-  // ── Drawing ──
+  // ── Mode switching ──
+
+  const modeToggle = document.getElementById('mode-toggle');
+
+  function setMode(m) {
+    if (mode === m) return;
+    if (mode === 'text') { commitText(); stopBlink(); }
+    if (mode === 'draw' && drawing) endStroke({ pointerId: activePointer });
+    mode = m;
+    document.body.classList.toggle('text-mode', m === 'text');
+    modeToggle.title = m === 'text' ? 'Text mode (Esc to exit)' : 'Draw mode (i for text)';
+    if (m === 'text') startBlink();
+    redraw();
+  }
+
+  modeToggle.addEventListener('click', () => setMode(mode === 'draw' ? 'text' : 'draw'));
+
+  // ── Blink cursor ──
+
+  function startBlink() {
+    cursorBlink = true;
+    blinkInterval = setInterval(() => { cursorBlink = !cursorBlink; redraw(); }, 530);
+  }
+
+  function stopBlink() {
+    clearInterval(blinkInterval);
+    blinkInterval = null;
+    cursorBlink = false;
+  }
+
+  function resetBlink() {
+    cursorBlink = true;
+    clearInterval(blinkInterval);
+    blinkInterval = setInterval(() => { cursorBlink = !cursorBlink; redraw(); }, 530);
+    redraw();
+  }
+
+  // ── Pointer events ──
+
+  canvas.addEventListener('pointerenter', () => { mouseOnCanvas = true; });
+  canvas.addEventListener('pointerleave', () => { mouseOnCanvas = false; redraw(); });
 
   canvas.addEventListener('pointerdown', e => {
-    if (e.button !== 0 || drawing) return;
+    if (e.button !== 0) return;
+    if (mode === 'text') {
+      commitText();
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+      redraw();
+      return;
+    }
+    if (drawing) return;
     activePointer = e.pointerId;
     drawing = true;
     canvas.setPointerCapture(e.pointerId);
-    current = { points: [{ x: e.clientX, y: e.clientY }], color, width };
+    current = { type: 'stroke', points: [{ x: e.clientX, y: e.clientY }], color, width: brushWidth };
   });
 
   canvas.addEventListener('pointermove', e => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+
+    if (mode === 'text') {
+      if (activeText) {
+        const dx = mouseX - activeText.x, dy = mouseY - activeText.y;
+        if (dx * dx + dy * dy > 2500) commitText();
+      }
+      redraw();
+      return;
+    }
+
     if (!drawing || e.pointerId !== activePointer) return;
     current.points.push({ x: e.clientX, y: e.clientY });
     redraw();
-    renderStroke(current);
   });
 
   function endStroke(e) {
@@ -207,6 +350,8 @@
 
   canvas.addEventListener('pointerup', endStroke);
   canvas.addEventListener('pointercancel', endStroke);
+
+  // ── Rendering ──
 
   function renderStroke(s) {
     const pts = s.points;
@@ -237,10 +382,158 @@
     ctx.stroke();
   }
 
+  function renderTextEntry(t) {
+    ctx.font = `${t.fontSize}px ${t.fontFamily}`;
+    ctx.fillStyle = t.color;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(t.text, t.x, t.y);
+  }
+
+  function renderEntry(entry) {
+    if (entry.type === 'text') renderTextEntry(entry);
+    else renderStroke(entry);
+  }
+
+  function renderCursor() {
+    if (!cursorBlink || mode !== 'text') return;
+    let cx, cy, h;
+    if (activeText) {
+      ctx.font = `${activeText.fontSize}px ${activeText.fontFamily}`;
+      cx = activeText.x + ctx.measureText(activeText.text.substring(0, activeText.cursorPos)).width;
+      cy = activeText.y;
+      h = activeText.fontSize;
+    } else {
+      if (!mouseOnCanvas) return;
+      cx = mouseX;
+      cy = mouseY;
+      h = fontSize;
+    }
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.moveTo(cx, cy - h * 0.5);
+    ctx.lineTo(cx, cy + h * 0.5);
+    ctx.stroke();
+  }
+
   function redraw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    strokes.forEach(renderStroke);
+    strokes.forEach(renderEntry);
+    if (activeText && activeText.text.length > 0) renderTextEntry(activeText);
+    if (current) renderStroke(current);
+    renderCursor();
   }
+
+  // ── Text helpers ──
+
+  function commitText() {
+    if (activeText && activeText.text.length > 0) {
+      strokes.push({
+        type: 'text', x: activeText.x, y: activeText.y,
+        text: activeText.text, color: activeText.color,
+        fontSize: activeText.fontSize, fontFamily: activeText.fontFamily
+      });
+      updateUndo();
+    }
+    activeText = null;
+  }
+
+  function prevWordBound(text, pos) {
+    if (pos <= 0) return 0;
+    let i = pos - 1;
+    while (i > 0 && text[i - 1] === ' ') i--;
+    while (i > 0 && text[i - 1] !== ' ') i--;
+    return i;
+  }
+
+  function nextWordBound(text, pos) {
+    const len = text.length;
+    if (pos >= len) return len;
+    let i = pos;
+    while (i < len && text[i] !== ' ') i++;
+    while (i < len && text[i] === ' ') i++;
+    return i;
+  }
+
+  // ── Keyboard ──
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+      return;
+    }
+
+    if (mode === 'draw') {
+      if (e.key === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setMode('text');
+      }
+      return;
+    }
+
+    // ── Text mode ──
+
+    if (e.key === 'Escape') { commitText(); setMode('draw'); return; }
+    if (e.key === 'Enter') { e.preventDefault(); commitText(); redraw(); return; }
+    if (e.metaKey || e.ctrlKey) return;
+
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (activeText) {
+        activeText.cursorPos = e.altKey
+          ? prevWordBound(activeText.text, activeText.cursorPos)
+          : Math.max(0, activeText.cursorPos - 1);
+        resetBlink();
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      if (activeText) {
+        activeText.cursorPos = e.altKey
+          ? nextWordBound(activeText.text, activeText.cursorPos)
+          : Math.min(activeText.text.length, activeText.cursorPos + 1);
+        resetBlink();
+      }
+      return;
+    }
+
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      if (activeText && activeText.cursorPos > 0) {
+        const to = e.altKey ? prevWordBound(activeText.text, activeText.cursorPos) : activeText.cursorPos - 1;
+        activeText.text = activeText.text.slice(0, to) + activeText.text.slice(activeText.cursorPos);
+        activeText.cursorPos = to;
+        resetBlink();
+      }
+      return;
+    }
+
+    if (e.key === 'Delete') {
+      e.preventDefault();
+      if (activeText && activeText.cursorPos < activeText.text.length) {
+        const to = e.altKey ? nextWordBound(activeText.text, activeText.cursorPos) : activeText.cursorPos + 1;
+        activeText.text = activeText.text.slice(0, activeText.cursorPos) + activeText.text.slice(to);
+        resetBlink();
+      }
+      return;
+    }
+
+    if (e.key.length === 1) {
+      e.preventDefault();
+      if (!activeText) {
+        activeText = {
+          type: 'text', x: mouseX, y: mouseY, text: '',
+          color, fontSize, fontFamily, cursorPos: 0
+        };
+      }
+      activeText.text = activeText.text.slice(0, activeText.cursorPos) + e.key + activeText.text.slice(activeText.cursorPos);
+      activeText.cursorPos++;
+      resetBlink();
+    }
+  });
 
   // ── Sidebar: colors ──
 
@@ -255,13 +548,34 @@
   // ── Sidebar: thickness ──
 
   document.querySelector('.thickness-slider').addEventListener('input', e => {
-    width = parseInt(e.target.value);
+    brushWidth = parseInt(e.target.value);
+  });
+
+  // ── Sidebar: text size ──
+
+  document.querySelectorAll('.size-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelector('.size-btn.active').classList.remove('active');
+      btn.classList.add('active');
+      fontSize = parseInt(btn.dataset.size);
+    });
+  });
+
+  // ── Sidebar: text font ──
+
+  document.querySelectorAll('.font-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelector('.font-btn.active').classList.remove('active');
+      btn.classList.add('active');
+      fontFamily = btn.dataset.font;
+    });
   });
 
   // ── Sidebar: undo ──
 
   const undoBtn = document.getElementById('undo');
   function undo() {
+    if (activeText) { activeText = null; redraw(); return; }
     if (strokes.length === 0) return;
     strokes.pop();
     updateUndo();
@@ -270,16 +584,10 @@
   undoBtn.addEventListener('click', undo);
   function updateUndo() { undoBtn.disabled = strokes.length === 0; }
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
-      e.preventDefault();
-      undo();
-    }
-  });
-
   // ── Sidebar: clear ──
 
   document.getElementById('clear').addEventListener('click', () => {
+    activeText = null;
     strokes = [];
     updateUndo();
     redraw();
@@ -289,7 +597,7 @@
 
   const r2 = n => Math.round(n * 100) / 100;
 
-  function strokeToPath(s) {
+  function strokeToSvg(s) {
     const pts = s.points;
     if (pts.length === 1) {
       return `  <circle cx="${r2(pts[0].x)}" cy="${r2(pts[0].y)}" r="${r2(s.width / 2)}" fill="${s.color}"/>`;
@@ -308,11 +616,21 @@
     return `  <path d="${d}" stroke="${s.color}" stroke-width="${s.width}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
   }
 
+  function textToSvg(t) {
+    const esc = t.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `  <text x="${r2(t.x)}" y="${r2(t.y)}" font-family="${t.fontFamily}" font-size="${t.fontSize}" fill="${t.color}" dominant-baseline="central">${esc}</text>`;
+  }
+
+  function entryToSvg(entry) {
+    return entry.type === 'text' ? textToSvg(entry) : strokeToSvg(entry);
+  }
+
   document.getElementById('save').addEventListener('click', () => {
-    const w = canvas.width;
-    const h = canvas.height;
-    const paths = strokes.map(strokeToPath).join('\n');
-    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n${paths}\n</svg>`;
+    commitText();
+    redraw();
+    const w = canvas.width, h = canvas.height;
+    const els = strokes.map(entryToSvg).join('\n');
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n${els}\n</svg>`;
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
