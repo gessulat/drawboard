@@ -247,6 +247,103 @@
   let blinkInterval = null;
   let shiftHeld = false;
 
+  // ── URL serialization ──
+
+  const FONT_ENC = { 'serif': 0, 'sans-serif': 1, 'monospace': 2 };
+  const FONT_DEC = ['serif', 'sans-serif', 'monospace'];
+  let urlGen = 0;
+
+  function serializeStrokes(arr) {
+    return arr.map(s => {
+      if (s.type === 'stroke') {
+        const pts = s.points;
+        const f = [Math.round(pts[0].x), Math.round(pts[0].y)];
+        for (let i = 1; i < pts.length; i++) {
+          f.push(Math.round(pts[i].x) - Math.round(pts[i - 1].x));
+          f.push(Math.round(pts[i].y) - Math.round(pts[i - 1].y));
+        }
+        return ['s', s.color, s.width, f];
+      }
+      return ['t', s.color, s.fontSize, FONT_ENC[s.fontFamily] ?? 0, Math.round(s.x), Math.round(s.y), s.text];
+    });
+  }
+
+  function deserializeStrokes(arr) {
+    return arr.map(d => {
+      if (d[0] === 's') {
+        const f = d[3], pts = [{ x: f[0], y: f[1] }];
+        for (let i = 2; i < f.length; i += 2) {
+          const p = pts[pts.length - 1];
+          pts.push({ x: p.x + f[i], y: p.y + f[i + 1] });
+        }
+        return { type: 'stroke', color: d[1], width: d[2], points: pts };
+      }
+      return { type: 'text', color: d[1], fontSize: d[2], fontFamily: FONT_DEC[d[3]] || 'serif', x: d[4], y: d[5], text: d[6] };
+    });
+  }
+
+  function toBase64url(bytes) {
+    let b = '';
+    for (const v of bytes) b += String.fromCharCode(v);
+    return btoa(b).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function fromBase64url(s) {
+    const b = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+    const a = new Uint8Array(b.length);
+    for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i);
+    return a;
+  }
+
+  async function deflate(data) {
+    const cs = new CompressionStream('deflate-raw');
+    const w = cs.writable.getWriter();
+    w.write(new TextEncoder().encode(data));
+    w.close();
+    const chunks = [], r = cs.readable.getReader();
+    for (;;) { const { done, value } = await r.read(); if (done) break; chunks.push(value); }
+    const out = new Uint8Array(chunks.reduce((a, c) => a + c.length, 0));
+    let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    return out;
+  }
+
+  async function inflate(bytes) {
+    const ds = new DecompressionStream('deflate-raw');
+    const w = ds.writable.getWriter();
+    w.write(bytes);
+    w.close();
+    const chunks = [], r = ds.readable.getReader();
+    for (;;) { const { done, value } = await r.read(); if (done) break; chunks.push(value); }
+    const out = new Uint8Array(chunks.reduce((a, c) => a + c.length, 0));
+    let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    return new TextDecoder().decode(out);
+  }
+
+  async function updateUrl() {
+    const gen = ++urlGen;
+    if (strokes.length === 0) {
+      history.replaceState(null, '', location.pathname);
+      return;
+    }
+    const hash = toBase64url(await deflate(JSON.stringify(serializeStrokes(strokes))));
+    if (gen !== urlGen) return;
+    history.replaceState(null, '', '#' + hash);
+  }
+
+  async function loadFromUrl() {
+    const h = location.hash.slice(1);
+    if (!h) return;
+    try {
+      strokes = deserializeStrokes(JSON.parse(await inflate(fromBase64url(h))));
+      updateUndo();
+      redraw();
+    } catch (e) {
+      console.warn('Failed to load drawing from URL:', e);
+    }
+  }
+
   function snapAngle(x0, y0, x1, y1) {
     const dx = x1 - x0, dy = y1 - y0;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -267,6 +364,7 @@
   }
   window.addEventListener('resize', resize);
   resize();
+  loadFromUrl();
 
   // ── Mode switching ──
 
@@ -358,6 +456,7 @@
       current = null;
       updateUndo();
       redraw();
+      updateUrl();
     }
   }
 
@@ -487,6 +586,7 @@
         fontSize: activeText.fontSize, fontFamily: activeText.fontFamily
       });
       updateUndo();
+      updateUrl();
     }
     activeText = null;
   }
@@ -690,6 +790,7 @@
     strokes.pop();
     updateUndo();
     redraw();
+    updateUrl();
   }
   undoBtn.addEventListener('click', undo);
   function updateUndo() { undoBtn.disabled = strokes.length === 0; }
@@ -701,6 +802,7 @@
     strokes = [];
     updateUndo();
     redraw();
+    updateUrl();
   });
 
   // ── Sidebar: save SVG ──
