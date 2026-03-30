@@ -162,9 +162,95 @@
     }
     .font-btn:hover { background: rgba(0, 0, 0, 0.04); }
     .font-btn.active { background: rgba(0, 0, 0, 0.07); color: #444; }
+
+    /* ── Home screen ── */
+    #home {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      background: #faf5ec;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #home.hidden { display: none; }
+
+    .home-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      width: min(90vw, 560px);
+    }
+
+    .home-cell {
+      aspect-ratio: 3 / 2;
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: pointer;
+      background: #fff;
+      box-shadow: 0 1px 8px rgba(0, 0, 0, 0.07);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .home-cell:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.11);
+    }
+
+    .home-cell.new-cell {
+      border: 2px dashed rgba(0, 0, 0, 0.15);
+      background: transparent;
+      box-shadow: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .home-cell.new-cell:hover {
+      border-color: rgba(0, 0, 0, 0.3);
+      background: rgba(0, 0, 0, 0.02);
+    }
+    .home-cell.new-cell svg { width: 32px; height: 32px; color: rgba(0, 0, 0, 0.2); }
+    .home-cell.new-cell:hover svg { color: rgba(0, 0, 0, 0.4); }
+
+    .home-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    /* ── Home button (board view) ── */
+    #home-btn {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      width: 36px;
+      height: 36px;
+      border: none;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 8px;
+      box-shadow: 0 1px 12px rgba(0, 0, 0, 0.06);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #777;
+      transition: background 0.12s, color 0.12s;
+      z-index: 10;
+      padding: 0;
+    }
+    #home-btn:hover { background: rgba(255, 255, 255, 0.9); color: #444; }
+    #home-btn.hidden { display: none; }
+    #home-btn svg { width: 16px; height: 16px; }
   </style>
 </head>
 <body>
+
+<div id="home">
+  <div class="home-grid" id="home-grid"></div>
+</div>
+
+<button id="home-btn" class="hidden" title="Home">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+  </svg>
+</button>
 
 <canvas id="c"></canvas>
 
@@ -402,7 +488,6 @@
   }
   window.addEventListener('resize', resize);
   resize();
-  loadFromUrl();
 
   // ── Mode switching ──
 
@@ -896,6 +981,149 @@
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   });
+
+  // ── Home screen ──
+
+  const homeEl = document.getElementById('home');
+  const homeGrid = document.getElementById('home-grid');
+  const homeBtn = document.getElementById('home-btn');
+
+  const GALLERY_KEY = 'drawboard_gallery';
+  const GALLERY_MAX = 8;
+  const THUMB_W = 300;
+  const THUMB_H = 200;
+
+  function loadGallery() {
+    try { return JSON.parse(localStorage.getItem(GALLERY_KEY) || '[]'); }
+    catch { return []; }
+  }
+
+  function saveGallery(entries) {
+    try { localStorage.setItem(GALLERY_KEY, JSON.stringify(entries)); } catch {}
+  }
+
+  function upsertGallery(hash, thumb) {
+    let entries = loadGallery().filter(e => e.hash !== hash);
+    entries.unshift({ hash, thumb });
+    saveGallery(entries.slice(0, GALLERY_MAX));
+  }
+
+  function captureThumbnail() {
+    if (strokes.length === 0) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const s of strokes) {
+      if (s.type === 'stroke') {
+        for (const p of s.points) {
+          x0 = Math.min(x0, p.x - s.width);
+          y0 = Math.min(y0, p.y - s.width);
+          x1 = Math.max(x1, p.x + s.width);
+          y1 = Math.max(y1, p.y + s.width);
+        }
+      } else {
+        ctx.font = `${s.fontSize}px ${s.fontFamily}`;
+        const lines = s.text.split('\n');
+        const maxW = Math.max(...lines.map(l => ctx.measureText(l).width));
+        x0 = Math.min(x0, s.x);
+        y0 = Math.min(y0, s.y - s.fontSize * 0.65);
+        x1 = Math.max(x1, s.x + maxW);
+        y1 = Math.max(y1, s.y + (lines.length - 1) * s.fontSize * 1.3 + s.fontSize * 0.65);
+      }
+    }
+    const pad = 20;
+    x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad);
+    x1 += pad; y1 += pad;
+    const bw = (x1 - x0) || 1, bh = (y1 - y0) || 1;
+    const dpr = window.devicePixelRatio || 1;
+    const oc = document.createElement('canvas');
+    oc.width = THUMB_W; oc.height = THUMB_H;
+    const ox = oc.getContext('2d');
+    ox.fillStyle = '#faf5ec';
+    ox.fillRect(0, 0, THUMB_W, THUMB_H);
+    const scale = Math.min(THUMB_W / bw, THUMB_H / bh);
+    const dw = bw * scale, dh = bh * scale;
+    const dx = (THUMB_W - dw) / 2, dy = (THUMB_H - dh) / 2;
+    ox.drawImage(canvas, x0 * dpr, y0 * dpr, bw * dpr, bh * dpr, dx, dy, dw, dh);
+    return oc.toDataURL('image/jpeg', 0.7);
+  }
+
+  function renderHome() {
+    homeGrid.innerHTML = '';
+    const nc = document.createElement('div');
+    nc.className = 'home-cell new-cell';
+    nc.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+    nc.addEventListener('click', () => showBoard(null));
+    homeGrid.appendChild(nc);
+    for (const entry of loadGallery()) {
+      const cell = document.createElement('div');
+      cell.className = 'home-cell';
+      const img = document.createElement('img');
+      img.src = entry.thumb;
+      img.draggable = false;
+      cell.appendChild(img);
+      cell.addEventListener('click', () => showBoard(entry.hash));
+      homeGrid.appendChild(cell);
+    }
+  }
+
+  async function showHome() {
+    commitText();
+    stopBlink();
+    if (strokes.length > 0) {
+      redraw();
+      const thumb = captureThumbnail();
+      if (thumb) {
+        const hash = toBase64url(await deflate(encodeStrokes(strokes)));
+        upsertGallery(hash, thumb);
+      }
+    }
+    urlGen++;
+    strokes = [];
+    current = null;
+    activeText = null;
+    drawing = false;
+    activePointer = null;
+    updateUndo();
+    redraw();
+    history.replaceState(null, '', location.pathname);
+    homeEl.classList.remove('hidden');
+    homeBtn.classList.add('hidden');
+    renderHome();
+  }
+
+  async function showBoard(hash) {
+    homeEl.classList.add('hidden');
+    homeBtn.classList.remove('hidden');
+    strokes = [];
+    current = null;
+    activeText = null;
+    drawing = false;
+    activePointer = null;
+    if (hash) {
+      history.replaceState(null, '', '#' + hash);
+      await loadFromUrl();
+    }
+    updateUndo();
+    redraw();
+  }
+
+  homeBtn.addEventListener('click', showHome);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && homeEl.classList.contains('hidden') && strokes.length > 0) {
+      const h = location.hash.slice(1);
+      if (h) {
+        const thumb = captureThumbnail();
+        if (thumb) upsertGallery(h, thumb);
+      }
+    }
+  });
+
+  // ── Init ──
+  if (location.hash.slice(1)) {
+    showBoard(location.hash.slice(1));
+  } else {
+    renderHome();
+  }
 </script>
 
 </body>
