@@ -249,37 +249,78 @@
 
   // ── URL serialization ──
 
+  const COLORS = ['#3a3a3a', '#b06060', '#607aab', '#5f9a68'];
+  const COLOR_IDX = Object.fromEntries(COLORS.map((c, i) => [c, i]));
   const FONT_ENC = { 'serif': 0, 'sans-serif': 1, 'monospace': 2 };
   const FONT_DEC = ['serif', 'sans-serif', 'monospace'];
   let urlGen = 0;
 
-  function serializeStrokes(arr) {
-    return arr.map(s => {
-      if (s.type === 'stroke') {
-        const pts = s.points;
-        const f = [Math.round(pts[0].x), Math.round(pts[0].y)];
-        for (let i = 1; i < pts.length; i++) {
-          f.push(Math.round(pts[i].x) - Math.round(pts[i - 1].x));
-          f.push(Math.round(pts[i].y) - Math.round(pts[i - 1].y));
-        }
-        return ['s', s.color, s.width, f];
+  function zigzag(n) { return (n << 1) ^ (n >> 31); }
+  function unzigzag(n) { return (n >>> 1) ^ -(n & 1); }
+  function wVar(buf, v) { v >>>= 0; while (v > 0x7f) { buf.push((v & 0x7f) | 0x80); v >>>= 7; } buf.push(v); }
+  function rVar(buf, p) { let v = 0, s = 0; while (buf[p.i] & 0x80) { v |= (buf[p.i++] & 0x7f) << s; s += 7; } v |= buf[p.i++] << s; return v >>> 0; }
+
+  function simplify(pts, tol) {
+    if (pts.length <= 2) return pts;
+    const t2 = tol * tol, keep = new Uint8Array(pts.length);
+    keep[0] = keep[pts.length - 1] = 1;
+    const stk = [[0, pts.length - 1]];
+    while (stk.length) {
+      const [a, b] = stk.pop();
+      let md = 0, mi = a;
+      const ax = pts[a].x, ay = pts[a].y, dx = pts[b].x - ax, dy = pts[b].y - ay, l2 = dx * dx + dy * dy;
+      for (let i = a + 1; i < b; i++) {
+        let d;
+        if (l2 === 0) { d = (pts[i].x - ax) ** 2 + (pts[i].y - ay) ** 2; }
+        else { const t = ((pts[i].x - ax) * dx + (pts[i].y - ay) * dy) / l2, ct = t < 0 ? 0 : t > 1 ? 1 : t; d = (pts[i].x - ax - ct * dx) ** 2 + (pts[i].y - ay - ct * dy) ** 2; }
+        if (d > md) { md = d; mi = i; }
       }
-      return ['t', s.color, s.fontSize, FONT_ENC[s.fontFamily] ?? 0, Math.round(s.x), Math.round(s.y), s.text];
-    });
+      if (md > t2) { keep[mi] = 1; if (mi - a > 1) stk.push([a, mi]); if (b - mi > 1) stk.push([mi, b]); }
+    }
+    return pts.filter((_, i) => keep[i]);
   }
 
-  function deserializeStrokes(arr) {
-    return arr.map(d => {
-      if (d[0] === 's') {
-        const f = d[3], pts = [{ x: f[0], y: f[1] }];
-        for (let i = 2; i < f.length; i += 2) {
-          const p = pts[pts.length - 1];
-          pts.push({ x: p.x + f[i], y: p.y + f[i + 1] });
-        }
-        return { type: 'stroke', color: d[1], width: d[2], points: pts };
+  function encodeStrokes(arr) {
+    const buf = [1];
+    for (const s of arr) {
+      const ci = COLOR_IDX[s.color] ?? 0xf;
+      buf.push(((s.type === 'text' ? 1 : 0) << 4) | ci);
+      if (ci === 0xf) { const h = s.color.replace('#', ''); buf.push(parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)); }
+      if (s.type === 'stroke') {
+        buf.push(s.width);
+        const pts = simplify(s.points.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })), 1);
+        wVar(buf, pts.length);
+        wVar(buf, zigzag(pts[0].x)); wVar(buf, zigzag(pts[0].y));
+        for (let i = 1; i < pts.length; i++) { wVar(buf, zigzag(pts[i].x - pts[i - 1].x)); wVar(buf, zigzag(pts[i].y - pts[i - 1].y)); }
+      } else {
+        buf.push(s.fontSize, FONT_ENC[s.fontFamily] ?? 0);
+        wVar(buf, zigzag(Math.round(s.x))); wVar(buf, zigzag(Math.round(s.y)));
+        const tb = new TextEncoder().encode(s.text);
+        wVar(buf, tb.length); for (const b of tb) buf.push(b);
       }
-      return { type: 'text', color: d[1], fontSize: d[2], fontFamily: FONT_DEC[d[3]] || 'serif', x: d[4], y: d[5], text: d[6] };
-    });
+    }
+    return new Uint8Array(buf);
+  }
+
+  function decodeStrokes(bytes) {
+    const p = { i: 0 }, arr = [];
+    if (bytes[p.i++] !== 1) throw new Error('bad version');
+    while (p.i < bytes.length) {
+      const hdr = bytes[p.i++], type = hdr >> 4, ci = hdr & 0xf;
+      const color = ci === 0xf ? '#' + [bytes[p.i++], bytes[p.i++], bytes[p.i++]].map(b => b.toString(16).padStart(2, '0')).join('') : COLORS[ci];
+      if (type === 0) {
+        const width = bytes[p.i++], count = rVar(bytes, p);
+        const pts = [{ x: unzigzag(rVar(bytes, p)), y: unzigzag(rVar(bytes, p)) }];
+        for (let j = 1; j < count; j++) { const prev = pts[j - 1]; pts.push({ x: prev.x + unzigzag(rVar(bytes, p)), y: prev.y + unzigzag(rVar(bytes, p)) }); }
+        arr.push({ type: 'stroke', color, width, points: pts });
+      } else {
+        const fontSize = bytes[p.i++], fontFamily = FONT_DEC[bytes[p.i++]] || 'serif';
+        const x = unzigzag(rVar(bytes, p)), y = unzigzag(rVar(bytes, p));
+        const tl = rVar(bytes, p), text = new TextDecoder().decode(bytes.slice(p.i, p.i + tl)); p.i += tl;
+        arr.push({ type: 'text', color, fontSize, fontFamily, x, y, text });
+      }
+    }
+    return arr;
   }
 
   function toBase64url(bytes) {
@@ -295,10 +336,10 @@
     return a;
   }
 
-  async function deflate(data) {
+  async function deflate(bytes) {
     const cs = new CompressionStream('deflate-raw');
     const w = cs.writable.getWriter();
-    w.write(new TextEncoder().encode(data));
+    w.write(bytes);
     w.close();
     const chunks = [], r = cs.readable.getReader();
     for (;;) { const { done, value } = await r.read(); if (done) break; chunks.push(value); }
@@ -318,16 +359,13 @@
     const out = new Uint8Array(chunks.reduce((a, c) => a + c.length, 0));
     let off = 0;
     for (const c of chunks) { out.set(c, off); off += c.length; }
-    return new TextDecoder().decode(out);
+    return out;
   }
 
   async function updateUrl() {
     const gen = ++urlGen;
-    if (strokes.length === 0) {
-      history.replaceState(null, '', location.pathname);
-      return;
-    }
-    const hash = toBase64url(await deflate(JSON.stringify(serializeStrokes(strokes))));
+    if (strokes.length === 0) { history.replaceState(null, '', location.pathname); return; }
+    const hash = toBase64url(await deflate(encodeStrokes(strokes)));
     if (gen !== urlGen) return;
     history.replaceState(null, '', '#' + hash);
   }
@@ -336,7 +374,7 @@
     const h = location.hash.slice(1);
     if (!h) return;
     try {
-      strokes = deserializeStrokes(JSON.parse(await inflate(fromBase64url(h))));
+      strokes = decodeStrokes(await inflate(fromBase64url(h)));
       updateUndo();
       redraw();
     } catch (e) {
