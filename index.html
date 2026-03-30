@@ -519,7 +519,25 @@
     if (e.key === 'Shift') { shiftHeld = false; if (drawing) redraw(); }
   });
 
+  const colorBtns = document.querySelectorAll('.color-btn');
+
+  function cycleColor() {
+    const cur = document.querySelector('.color-btn.active');
+    const arr = [...colorBtns];
+    const next = arr[(arr.indexOf(cur) + 1) % arr.length];
+    cur.classList.remove('active');
+    next.classList.add('active');
+    color = next.dataset.color;
+    if (activeText) { activeText.color = color; redraw(); }
+  }
+
   document.addEventListener('keydown', e => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      cycleColor();
+      return;
+    }
+
     if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
       e.preventDefault();
       undo();
@@ -629,7 +647,7 @@
 
   // ── Sidebar: colors ──
 
-  document.querySelectorAll('.color-btn').forEach(btn => {
+  colorBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelector('.color-btn.active').classList.remove('active');
       btn.classList.add('active');
