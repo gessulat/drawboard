@@ -299,6 +299,53 @@
     #home-btn:hover { background: rgba(255, 255, 255, 0.9); color: #444; }
     #home-btn.hidden { display: none; }
     #home-btn svg { width: 16px; height: 16px; }
+
+    #help-btn {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      box-shadow: 0 1px 12px rgba(0, 0, 0, 0.06);
+      font: 14px/28px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #777;
+      cursor: pointer;
+      z-index: 10;
+      padding: 0;
+    }
+    #help-btn:hover { background: rgba(255, 255, 255, 0.9); color: #444; }
+
+    /* ── Help overlay ── */
+    #help-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(30, 30, 30, 0.75);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    #help-overlay.visible { display: flex; }
+    #help-overlay table {
+      color: #eee;
+      font-size: 16px;
+      border-spacing: 16px 10px;
+    }
+    #help-overlay kbd {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-family: inherit;
+      font-size: 14px;
+      min-width: 28px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -315,7 +362,20 @@
 
 <input id="title-input" class="hidden" type="text" placeholder="Untitled" spellcheck="false" autocomplete="off">
 
+<button id="help-btn" title="Keyboard shortcuts (?)">?</button>
+
 <canvas id="c"></canvas>
+
+<div id="help-overlay">
+  <table>
+    <tr><td><kbd>i</kbd></td><td>Enter text mode</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Return to paint mode</td></tr>
+    <tr><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td><td>Cycle colors</td></tr>
+    <tr><td><kbd>⌘Z</kbd></td><td>Undo</td></tr>
+    <tr><td><kbd>Shift</kbd></td><td>Straight lines</td></tr>
+    <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
+  </table>
+</div>
 
 <div class="sidebar">
   <!-- Mode toggle -->
@@ -515,14 +575,16 @@
   function slugify(s) {
     return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
+  function titleSlug() {
+    return drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
+  }
 
   async function updateUrl() {
     const gen = ++urlGen;
     if (strokes.length === 0) { history.replaceState(null, '', location.pathname); return; }
     const hash = toBase64url(await deflate(encodeStrokes(strokes)));
     if (gen !== urlGen) return;
-    const slug = drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
-    history.replaceState(null, '', '#' + slug + hash);
+    history.replaceState(null, '', '#' + titleSlug() + hash);
     debouncedSaveToGallery();
   }
 
@@ -829,20 +891,35 @@
 
   const colorBtns = document.querySelectorAll('.color-btn');
 
-  function cycleColor() {
+  function cycleColor(reverse) {
     const cur = document.querySelector('.color-btn.active');
     const arr = [...colorBtns];
-    const next = arr[(arr.indexOf(cur) + 1) % arr.length];
+    const i = arr.indexOf(cur);
+    const next = arr[(i + (reverse ? arr.length - 1 : 1)) % arr.length];
     cur.classList.remove('active');
     next.classList.add('active');
     color = next.dataset.color;
     if (activeText) { activeText.color = color; redraw(); }
   }
 
+  const helpOverlay = document.getElementById('help-overlay');
+  const helpBtn = document.getElementById('help-btn');
+  helpOverlay.addEventListener('click', () => helpOverlay.classList.remove('visible'));
+  helpBtn.addEventListener('click', () => helpOverlay.classList.toggle('visible'));
+
   document.addEventListener('keydown', e => {
+    if (e.key === '?' && !activeText) {
+      helpOverlay.classList.toggle('visible');
+      return;
+    }
+    if (helpOverlay.classList.contains('visible')) {
+      if (e.key === 'Escape' || e.key === '?') helpOverlay.classList.remove('visible');
+      return;
+    }
+
     if (e.key === 'Tab') {
       e.preventDefault();
-      cycleColor();
+      cycleColor(e.shiftKey);
       return;
     }
 
@@ -1099,15 +1176,17 @@
   }
 
   let saveTimer = 0;
+  let lastSavedHash = '';
   function saveToGallery() {
     if (!homeEl.classList.contains('hidden') || strokes.length === 0) return;
     const h = location.hash.slice(1);
-    if (!h) return;
+    if (!h || h === lastSavedHash) return;
     redraw();
     const thumb = captureThumbnail();
     if (thumb) {
       const id = upsertGallery(h, thumb, currentBoardId, drawingTitle);
       if (!currentBoardId) currentBoardId = id;
+      lastSavedHash = h;
     }
   }
   function debouncedSaveToGallery() {
@@ -1191,14 +1270,14 @@
   async function showHome() {
     commitText();
     stopBlink();
-    if (activeText === null && strokes.length > 0) {
-      // ensure URL hash is current after commitText may have added a stroke
+    if (strokes.length > 0) {
+      // updateUrl is async/debounced so we eagerly compress here to guarantee hash is current before saveToGallery reads it
       const hash = toBase64url(await deflate(encodeStrokes(strokes)));
-      const slug = drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
-      history.replaceState(null, '', '#' + slug + hash);
+      history.replaceState(null, '', '#' + titleSlug() + hash);
     }
     clearTimeout(saveTimer);
     saveToGallery();
+    lastSavedHash = '';
     currentBoardId = null;
     urlGen++;
     strokes = [];
