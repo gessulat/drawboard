@@ -239,8 +239,9 @@
       top: 8px;
       left: 10px;
       color: #3a3a3a;
+      font-family: Palatino, "Palatino Linotype", "Book Antiqua", serif;
       font-size: 12px;
-      font-weight: 600;
+      font-weight: normal;
       pointer-events: none;
       white-space: nowrap;
       overflow: hidden;
@@ -257,13 +258,17 @@
       background: transparent;
       border: none;
       outline: none;
-      font-family: inherit;
-      font-size: 20px;
+      font-family: Palatino, "Palatino Linotype", "Book Antiqua", serif;
+      font-size: 30px;
       color: #aaa;
       text-align: center;
       z-index: 10;
       padding: 6px 16px;
-      width: 300px;
+      width: auto;
+      min-width: 2ch;
+      max-width: 80vw;
+      white-space: nowrap;
+      overflow: visible;
     }
     #title-input:focus { color: #555; }
     #title-input::placeholder { color: #ccc; }
@@ -516,7 +521,7 @@
     if (strokes.length === 0) { history.replaceState(null, '', location.pathname); return; }
     const hash = toBase64url(await deflate(encodeStrokes(strokes)));
     if (gen !== urlGen) return;
-    const slug = drawingTitle ? slugify(drawingTitle) + '~' : '';
+    const slug = drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
     history.replaceState(null, '', '#' + slug + hash);
   }
 
@@ -527,8 +532,15 @@
       let data = h;
       const ti = h.indexOf('~');
       if (ti !== -1) {
-        drawingTitle = h.slice(0, ti).replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        data = h.slice(ti + 1);
+        const rest = h.slice(ti + 1);
+        const ti2 = rest.indexOf('~');
+        if (ti2 !== -1) {
+          try { drawingTitle = decodeURIComponent(escape(atob(rest.slice(0, ti2)))); } catch { drawingTitle = h.slice(0, ti).replace(/-/g, ' '); }
+          data = rest.slice(ti2 + 1);
+        } else {
+          drawingTitle = h.slice(0, ti).replace(/-/g, ' ');
+          data = rest;
+        }
       } else {
         drawingTitle = '';
       }
@@ -1164,7 +1176,7 @@
       const thumb = captureThumbnail();
       if (thumb) {
         const dataHash = toBase64url(await deflate(encodeStrokes(strokes)));
-        const slug = drawingTitle ? slugify(drawingTitle) + '~' : '';
+        const slug = drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
         upsertGallery(slug + dataHash, thumb, currentBoardId, drawingTitle);
       }
     }
@@ -1202,6 +1214,7 @@
     }
     titleInput.value = drawingTitle;
     titleInput.style.color = drawingTitle ? '#3a3a3a' : '';
+    autoSizeTitle();
     updateUndo();
     redraw();
   }
@@ -1213,11 +1226,15 @@
     e.stopPropagation();
     if (e.key === 'Escape' || e.key === 'Enter') titleInput.blur();
   });
-  titleInput.addEventListener('focus', () => { titleInput.placeholder = ''; });
-  titleInput.addEventListener('blur', () => { titleInput.placeholder = 'Untitled'; });
+  titleInput.addEventListener('focus', () => { titleInput.placeholder = ''; autoSizeTitle(); });
+  titleInput.addEventListener('blur', () => { titleInput.placeholder = 'Untitled'; autoSizeTitle(); });
+  function autoSizeTitle() {
+    titleInput.size = Math.max(1, titleInput.value.length || titleInput.placeholder.length);
+  }
   titleInput.addEventListener('input', () => {
     drawingTitle = titleInput.value;
     titleInput.style.color = drawingTitle ? '#3a3a3a' : '';
+    autoSizeTitle();
     updateUrl();
   });
 
