@@ -523,6 +523,7 @@
     if (gen !== urlGen) return;
     const slug = drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
     history.replaceState(null, '', '#' + slug + hash);
+    debouncedSaveToGallery();
   }
 
   async function loadFromUrl() {
@@ -1091,8 +1092,27 @@
     let entries = loadGallery();
     if (replaceId) entries = entries.filter(e => e.id !== replaceId);
     entries = entries.filter(e => e.hash !== hash);
-    entries.unshift({ id: replaceId || Date.now().toString(36), hash, thumb, title: title || '' });
+    const id = replaceId || Date.now().toString(36);
+    entries.unshift({ id, hash, thumb, title: title || '' });
     saveGallery(entries.slice(0, GALLERY_MAX));
+    return id;
+  }
+
+  let saveTimer = 0;
+  function saveToGallery() {
+    if (!homeEl.classList.contains('hidden') || strokes.length === 0) return;
+    const h = location.hash.slice(1);
+    if (!h) return;
+    redraw();
+    const thumb = captureThumbnail();
+    if (thumb) {
+      const id = upsertGallery(h, thumb, currentBoardId, drawingTitle);
+      if (!currentBoardId) currentBoardId = id;
+    }
+  }
+  function debouncedSaveToGallery() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveToGallery, 2000);
   }
 
   function deleteEntry(id) {
@@ -1171,15 +1191,14 @@
   async function showHome() {
     commitText();
     stopBlink();
-    if (strokes.length > 0) {
-      redraw();
-      const thumb = captureThumbnail();
-      if (thumb) {
-        const dataHash = toBase64url(await deflate(encodeStrokes(strokes)));
-        const slug = drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
-        upsertGallery(slug + dataHash, thumb, currentBoardId, drawingTitle);
-      }
+    if (activeText === null && strokes.length > 0) {
+      // ensure URL hash is current after commitText may have added a stroke
+      const hash = toBase64url(await deflate(encodeStrokes(strokes)));
+      const slug = drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
+      history.replaceState(null, '', '#' + slug + hash);
     }
+    clearTimeout(saveTimer);
+    saveToGallery();
     currentBoardId = null;
     urlGen++;
     strokes = [];
@@ -1239,14 +1258,9 @@
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && homeEl.classList.contains('hidden') && strokes.length > 0) {
-      const h = location.hash.slice(1);
-      if (h) {
-        const thumb = captureThumbnail();
-        if (thumb) upsertGallery(h, thumb, currentBoardId, drawingTitle);
-      }
-    }
+    if (document.visibilityState === 'hidden') saveToGallery();
   });
+  window.addEventListener('beforeunload', saveToGallery);
 
   // ── Init ──
   if (location.hash.slice(1)) {
