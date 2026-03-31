@@ -515,14 +515,16 @@
   function slugify(s) {
     return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
+  function titleSlug() {
+    return drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
+  }
 
   async function updateUrl() {
     const gen = ++urlGen;
     if (strokes.length === 0) { history.replaceState(null, '', location.pathname); return; }
     const hash = toBase64url(await deflate(encodeStrokes(strokes)));
     if (gen !== urlGen) return;
-    const slug = drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
-    history.replaceState(null, '', '#' + slug + hash);
+    history.replaceState(null, '', '#' + titleSlug() + hash);
     debouncedSaveToGallery();
   }
 
@@ -1099,15 +1101,17 @@
   }
 
   let saveTimer = 0;
+  let lastSavedHash = '';
   function saveToGallery() {
     if (!homeEl.classList.contains('hidden') || strokes.length === 0) return;
     const h = location.hash.slice(1);
-    if (!h) return;
+    if (!h || h === lastSavedHash) return;
     redraw();
     const thumb = captureThumbnail();
     if (thumb) {
       const id = upsertGallery(h, thumb, currentBoardId, drawingTitle);
       if (!currentBoardId) currentBoardId = id;
+      lastSavedHash = h;
     }
   }
   function debouncedSaveToGallery() {
@@ -1191,14 +1195,14 @@
   async function showHome() {
     commitText();
     stopBlink();
-    if (activeText === null && strokes.length > 0) {
-      // ensure URL hash is current after commitText may have added a stroke
+    if (strokes.length > 0) {
+      // updateUrl is async/debounced so we eagerly compress here to guarantee hash is current before saveToGallery reads it
       const hash = toBase64url(await deflate(encodeStrokes(strokes)));
-      const slug = drawingTitle ? slugify(drawingTitle) + '~' + btoa(unescape(encodeURIComponent(drawingTitle))) + '~' : '';
-      history.replaceState(null, '', '#' + slug + hash);
+      history.replaceState(null, '', '#' + titleSlug() + hash);
     }
     clearTimeout(saveTimer);
     saveToGallery();
+    lastSavedHash = '';
     currentBoardId = null;
     urlGen++;
     strokes = [];
